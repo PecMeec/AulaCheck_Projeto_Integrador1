@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="AulaCheck">
+  <rect width="64" height="64" rx="16" fill="#102a43"/>
+  <g fill="none" stroke="#fff" stroke-width="4">
+    <rect x="11" y="11" width="16" height="16" rx="3"/>
+    <rect x="37" y="11" width="16" height="16" rx="3"/>
+    <rect x="11" y="37" width="16" height="16" rx="3"/>
+  </g>
+  <g fill="#fff"><rect x="17" y="17" width="4" height="4"/><rect x="43" y="17" width="4" height="4"/><rect x="17" y="43" width="4" height="4"/></g>
+  <path d="M37 46l6 6 11-13" fill="none" stroke="#22d3ee" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

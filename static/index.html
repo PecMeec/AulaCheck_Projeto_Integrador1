@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#102a43">
+  <title>AulaCheck | Sistema de controle de presença</title>
+  <link rel="icon" type="image/svg+xml" href="/static/img/logo.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <main id="app" class="app-shell">
+    <section id="login-screen" class="login-layout hidden">
+      <div class="login-brand-panel">
+        <div class="brand brand-light"><span class="brand-mark"><img src="/static/img/logo.svg" alt=""></span><span>Aula<span class="brand-accent">Check</span></span></div>
+        <div class="brand-copy">
+          <span class="eyebrow">SISTEMA DE CONTROLE DE PRESENÇA</span>
+          <h1>Sua presença<br><span>em um toque.</span></h1>
+          <p>Uma chamada mais simples, rápida e organizada para professores e alunos.</p>
+        </div>
+        <div class="brand-footer"><span class="status-dot"></span> Projeto acadêmico · UNISA</div>
+        <div class="decor decor-one"></div><div class="decor decor-two"></div>
+      </div>
+      <div class="login-form-panel">
+        <div class="mobile-brand brand"><span class="brand-mark"><img src="/static/img/logo.svg" alt=""></span><span>Aula<span class="brand-accent">Check</span></span></div>
+        <div class="form-heading">
+          <span class="eyebrow">BEM-VINDO(A)</span>
+          <h2>Acesse sua conta</h2>
+          <p>Use o e-mail e a senha cadastrados pelo administrador.</p>
+        </div>
+        <form id="login-form">
+          <label for="email">E-mail</label>
+          <input id="email" type="email" autocomplete="username" placeholder="voce@universidade.edu.br" required>
+          <label for="password">Senha</label>
+          <div class="password-wrap"><input id="password" type="password" autocomplete="current-password" placeholder="Digite sua senha" required><button class="toggle-password" type="button" id="toggle-password" aria-label="Mostrar senha">Mostrar</button></div>
+          <p id="login-error" class="error-message" role="alert"></p>
+          <button class="button button-primary button-full" type="submit">Entrar <span aria-hidden="true">→</span></button>
+        </form>
+        <p class="privacy-note"><span>ⓘ</span> Não tem acesso? Solicite o cadastro ao administrador da sua instituição.</p>
+      </div>
+    </section>
+
+    <section id="dashboard-screen" class="dashboard-screen hidden">
+      <aside class="sidebar">
+        <div class="brand"><span class="brand-mark"><img src="/static/img/logo.svg" alt=""></span><span>Aula<span class="brand-accent">Check</span></span></div>
+        <div class="side-label">MENU PRINCIPAL</div>
+        <nav id="main-nav"></nav>
+        <div class="sidebar-bottom">
+          <div class="prototype-note"><span>✓</span><div><strong>Sua presença em um toque</strong><small>Projeto acadêmico</small></div></div>
+          <button class="logout-button" id="logout-button"><span>↪</span> Sair da conta</button>
+        </div>
+      </aside>
+      <section class="main-area">
+        <header class="topbar">
+          <div class="mobile-brand brand"><span class="brand-mark"><img src="/static/img/logo.svg" alt=""></span><span>Aula<span class="brand-accent">Check</span></span></div>
+          <div class="breadcrumb">Ambiente acadêmico <span>/</span> <strong id="role-label">Painel</strong></div>
+          <div class="user-menu"><div class="avatar" id="user-avatar">A</div><div class="user-meta"><strong id="user-name">Usuário</strong><small id="user-role">Perfil</small></div></div>
+        </header>
+        <div id="page-content" class="page-content"></div>
+      </section>
+    </section>
+    <div id="toast" class="toast" role="status"></div>
+  </main>
+  <script src="/static/js/qrcode.min.js"></script>
+  <script src="/static/js/html5-qrcode.min.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>
