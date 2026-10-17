@@ -95,28 +95,55 @@ const emptyState = (icon, title, text) => `<div class="empty-state"><div class="
 const pct = (c) => c.total ? Math.round(c.presentes / c.total * 100) : 0;
 
 /* ---------- administrador ---------- */
+let editando = null;
 async function renderAdminUsers() {
   const users = await api("/api/admin/usuarios");
-  pageContent.innerHTML = heading("ADMINISTRAÇÃO", "Usuários", "Cadastre professores e alunos. Não há cadastro público.") +
-    `<div class="content-grid"><section class="panel"><div class="panel-header"><div><h2>Usuários cadastrados</h2><p>${users.length} usuário(s)</p></div></div>
-    <div class="table-wrap"><table><thead><tr><th>NOME</th><th>PERFIL</th><th>STATUS</th><th></th></tr></thead><tbody>
-    ${users.map(u => `<tr><td><div class="person-cell"><div class="mini-avatar">${escapeHtml(initials(u.nome))}</div><div>${escapeHtml(u.nome)}<br><span class="muted">${escapeHtml(u.email)}</span></div></div></td><td>${ROLES[u.perfil]}</td><td><span class="pill ${u.ativo ? "pill-green" : "pill-amber"}">${u.ativo ? "Ativo" : "Inativo"}</span></td><td>${u.id === me.id ? "" : `<button class="text-link" data-toggle="${u.id}" data-ativo="${u.ativo}">${u.ativo ? "Desativar" : "Reativar"}</button>`}</td></tr>`).join("")}
-    </tbody></table></div></section>
-    <section class="panel"><div class="panel-header"><div><h2>Novo usuário</h2><p>Senha com pelo menos 8 caracteres</p></div></div>
-    <form id="user-form"><div class="field"><label for="u-nome">Nome</label><input id="u-nome" required maxlength="120"></div>
-    <div class="field"><label for="u-email">E-mail</label><input id="u-email" type="email" required></div>
-    <div class="field"><label for="u-perfil">Perfil</label><select id="u-perfil"><option value="aluno">Aluno(a)</option><option value="professor">Professor(a)</option><option value="admin">Administrador(a)</option></select></div>
-    <div class="field"><label for="u-senha">Senha inicial</label><input id="u-senha" type="password" minlength="8" autocomplete="new-password" required></div>
-    <p class="error-message" id="user-error" role="alert"></p><button class="button button-primary" type="submit">Cadastrar →</button></form></section></div>`;
+  const ed = users.find(u => u.id === editando) || null; if (!ed) editando = null;
+  const linhas = users.map(u => `<tr data-busca="${escapeHtml((u.nome + " " + u.email).toLowerCase())}"><td><div class="person-cell"><div class="mini-avatar">${escapeHtml(initials(u.nome))}</div><div>${escapeHtml(u.nome)}<br><span class="muted">${escapeHtml(u.email)}</span></div></div></td><td>${ROLES[u.perfil]}</td><td><span class="pill ${u.ativo ? "pill-green" : "pill-amber"}">${u.ativo ? "Ativo" : "Inativo"}</span></td><td style="white-space:nowrap">${u.id === me.id ? `<button class="text-link" data-edit="${u.id}">Editar</button>` : `<button class="text-link" data-edit="${u.id}">Editar</button> · <button class="text-link" data-toggle="${u.id}" data-ativo="${u.ativo}">${u.ativo ? "Desativar" : "Reativar"}</button> · <button class="text-link" data-del="${u.id}">Excluir</button>`}</td></tr>`).join("");
+  pageContent.innerHTML = heading("ADMINISTRAÇÃO", "Usuários", "Cadastre, edite e redefina a senha de professores e alunos. Não há cadastro público.") +
+    `<div class="content-grid"><section class="panel"><div class="panel-header"><div><h2>Usuários cadastrados</h2><p id="u-contagem">${users.length} usuário(s)</p></div></div>
+    <div class="field"><input id="u-busca" placeholder="Buscar por nome ou e-mail" aria-label="Buscar usuário"></div>
+    <div class="table-wrap"><table><thead><tr><th>NOME</th><th>PERFIL</th><th>STATUS</th><th></th></tr></thead><tbody id="u-linhas">${linhas}</tbody></table></div></section>
+    <section class="panel"><div class="panel-header"><div><h2>${ed ? "Editar usuário" : "Novo usuário"}</h2><p>${ed ? "Deixe a senha em branco para manter a atual" : "Senha com pelo menos 8 caracteres"}</p></div></div>
+    <form id="user-form"><div class="field"><label for="u-nome">Nome</label><input id="u-nome" required maxlength="120" value="${ed ? escapeHtml(ed.nome) : ""}"></div>
+    <div class="field"><label for="u-email">E-mail</label><input id="u-email" type="email" required value="${ed ? escapeHtml(ed.email) : ""}"></div>
+    <div class="field"><label for="u-perfil">Perfil</label><select id="u-perfil" ${ed ? "disabled" : ""}><option value="aluno">Aluno(a)</option><option value="professor">Professor(a)</option><option value="admin">Administrador(a)</option></select></div>
+    <div class="field"><label for="u-senha">${ed ? "Nova senha (opcional)" : "Senha inicial"}</label><input id="u-senha" type="password" minlength="8" autocomplete="new-password" ${ed ? "" : "required"}></div>
+    <div class="field"><label for="u-senha2">Confirmar senha</label><input id="u-senha2" type="password" minlength="8" autocomplete="new-password" ${ed ? "" : "required"}></div>
+    <p class="error-message" id="user-error" role="alert"></p>
+    <div class="button-row"><button class="button button-primary" type="submit">${ed ? "Salvar alterações" : "Cadastrar"} →</button>${ed ? `<button class="button button-secondary" type="button" id="cancel-edit">Cancelar</button>` : ""}</div></form></section></div>`;
+  if (ed) $("#u-perfil").value = ed.perfil;
+  $("#u-busca").addEventListener("input", (e) => {
+    const q = e.target.value.trim().toLowerCase(); let n = 0;
+    $("#u-linhas").querySelectorAll("tr").forEach(tr => { const ok = tr.dataset.busca.includes(q); tr.hidden = !ok; if (ok) n++; });
+    $("#u-contagem").textContent = `${n} usuário(s)`;
+  });
   $("#user-form").addEventListener("submit", async (e) => {
     e.preventDefault();
+    const senha = $("#u-senha").value, conf = $("#u-senha2").value;
+    if (senha !== conf) { $("#user-error").textContent = "A senha e a confirmação não conferem."; return; }
     try {
-      await api("/api/admin/usuarios", { method: "POST", body: { nome: $("#u-nome").value, email: $("#u-email").value, perfil: $("#u-perfil").value, senha: $("#u-senha").value } });
-      notify("Usuário cadastrado."); showPage("a-users");
+      if (ed) {
+        const corpo = { nome: $("#u-nome").value, email: $("#u-email").value };
+        if (senha) { corpo.senha = senha; corpo.senha_confirmacao = conf; }
+        await api(`/api/admin/usuarios/${ed.id}`, { method: "PATCH", body: corpo });
+        editando = null; notify("Usuário atualizado.");
+      } else {
+        await api("/api/admin/usuarios", { method: "POST", body: { nome: $("#u-nome").value, email: $("#u-email").value, perfil: $("#u-perfil").value, senha, senha_confirmacao: conf } });
+        notify("Usuário cadastrado.");
+      }
+      showPage("a-users");
     } catch (err) { $("#user-error").textContent = err.message; }
   });
+  if (ed) $("#cancel-edit").addEventListener("click", () => { editando = null; showPage("a-users"); });
+  pageContent.querySelectorAll("[data-edit]").forEach(b => b.addEventListener("click", () => { editando = Number(b.dataset.edit); showPage("a-users"); }));
   pageContent.querySelectorAll("[data-toggle]").forEach(b => b.addEventListener("click", async () => {
     try { await api(`/api/admin/usuarios/${b.dataset.toggle}`, { method: "PATCH", body: { ativo: b.dataset.ativo !== "true" } }); showPage("a-users"); }
+    catch (err) { notify(err.message); }
+  }));
+  pageContent.querySelectorAll("[data-del]").forEach(b => b.addEventListener("click", async () => {
+    if (!confirm("Excluir este usuário? Esta ação não pode ser desfeita.")) return;
+    try { await api(`/api/admin/usuarios/${b.dataset.del}`, { method: "DELETE" }); notify("Usuário excluído."); showPage("a-users"); }
     catch (err) { notify(err.message); }
   }));
 }
@@ -124,16 +151,43 @@ async function renderAdminTurmas() {
   const [turmas, users] = await Promise.all([api("/api/admin/turmas"), api("/api/admin/usuarios")]);
   const profs = users.filter(u => u.perfil === "professor" && u.ativo);
   pageContent.innerHTML = heading("ADMINISTRAÇÃO", "Turmas", "Crie turmas, vincule o professor e matricule os alunos.") +
-    `<div class="content-grid"><section class="panel"><div class="panel-header"><div><h2>Turmas</h2><p>${turmas.length} turma(s)</p></div></div>
-    ${turmas.length ? `<div class="table-wrap"><table><thead><tr><th>TURMA</th><th>PROFESSOR(A)</th><th>ALUNOS</th></tr></thead><tbody>${turmas.map(t => `<tr><td>${escapeHtml(t.nome)}</td><td>${escapeHtml(t.professor)}</td><td>${t.total_alunos}</td></tr>`).join("")}</tbody></table></div>` : emptyState("▤", "Nenhuma turma", "Crie a primeira turma ao lado.")}</section>
+    `<div class="content-grid"><section class="panel"><div class="panel-header"><div><h2>Turmas</h2><p id="t-contagem">${turmas.length} turma(s)</p></div></div>
+    ${turmas.length ? `<div class="field"><input id="t-busca" placeholder="Buscar turma ou professor" aria-label="Buscar turma"></div>
+    <div class="table-wrap"><table><thead><tr><th>TURMA</th><th>PROFESSOR(A)</th><th>ALUNOS</th><th></th></tr></thead><tbody id="t-linhas">${turmas.map(t => `<tr data-busca="${escapeHtml((t.nome + " " + t.professor).toLowerCase())}"><td>${escapeHtml(t.nome)}</td><td>${escapeHtml(t.professor)}</td><td data-conta="${t.id}">${t.total_alunos}</td><td><button class="text-link" data-alunos="${t.id}" data-nome="${escapeHtml(t.nome)}">Ver alunos</button></td></tr>`).join("")}</tbody></table></div>` : emptyState("▤", "Nenhuma turma", "Crie a primeira turma ao lado.")}
+    <div id="turma-alunos" class="section-space"></div></section>
     <div><section class="panel"><div class="panel-header"><div><h2>Nova turma</h2></div></div>
     <form id="turma-form"><div class="field"><label for="t-nome">Disciplina / turma</label><input id="t-nome" required maxlength="120" placeholder="Ex.: Projeto Integrador — Turma A"></div>
     <div class="field"><label for="t-prof">Professor(a)</label><select id="t-prof" required>${profs.map(p => `<option value="${p.id}">${escapeHtml(p.nome)}</option>`).join("") || "<option value=''>Cadastre um professor primeiro</option>"}</select></div>
     <p class="error-message" id="turma-error" role="alert"></p><button class="button button-primary" type="submit">Criar turma →</button></form></section>
-    <section class="panel section-space"><div class="panel-header"><div><h2>Matricular alunos</h2><p>Um e-mail por linha</p></div></div>
-    <form id="mat-form"><div class="field"><label for="m-turma">Turma</label><select id="m-turma" required>${turmas.map(t => `<option value="${t.id}">${escapeHtml(t.nome)}</option>`).join("") || "<option value=''>Crie uma turma primeiro</option>"}</select></div>
+    <section class="panel section-space"><div class="panel-header"><div><h2>Matricular alunos</h2><p>Busque a turma e informe um e-mail por linha</p></div></div>
+    <form id="mat-form"><div class="field"><label for="m-busca">Buscar turma</label><input id="m-busca" placeholder="Digite parte do nome da turma ou do professor" autocomplete="off"></div>
+    <div class="field"><label for="m-turma">Turma</label><select id="m-turma" required></select></div>
     <div class="field"><label for="m-emails">E-mails dos alunos</label><textarea id="m-emails" required></textarea></div>
     <p class="error-message" id="mat-error" role="alert"></p><button class="button button-primary" type="submit">Matricular →</button></form></section></div></div>`;
+  const preencher = (q = "") => {
+    const f = turmas.filter(t => (t.nome + " " + t.professor).toLowerCase().includes(q.trim().toLowerCase()));
+    $("#m-turma").innerHTML = f.map(t => `<option value="${t.id}">${escapeHtml(t.nome)} — ${escapeHtml(t.professor)}</option>`).join("") || "<option value=''>Nenhuma turma encontrada</option>";
+  };
+  preencher();
+  $("#m-busca").addEventListener("input", (e) => preencher(e.target.value));
+  const tb = $("#t-busca");
+  if (tb) tb.addEventListener("input", (e) => {
+    const q = e.target.value.trim().toLowerCase(); let n = 0;
+    $("#t-linhas").querySelectorAll("tr").forEach(tr => { const ok = tr.dataset.busca.includes(q); tr.hidden = !ok; if (ok) n++; });
+    $("#t-contagem").textContent = `${n} turma(s)`;
+  });
+  async function abrirAlunos(id, nome) {
+    const lista = await api(`/api/admin/turmas/${id}/alunos`);
+    const cel = pageContent.querySelector(`[data-conta="${id}"]`); if (cel) cel.textContent = lista.length;
+    $("#turma-alunos").innerHTML = `<div class="panel-header"><div><h2>Alunos — ${escapeHtml(nome)}</h2><p>${lista.length} matriculado(s)</p></div></div>` +
+      (lista.length ? `<div class="table-wrap"><table><tbody>${lista.map(a => `<tr><td>${escapeHtml(a.nome)}<br><span class="muted">${escapeHtml(a.email)}</span></td><td><button class="text-link" data-rem="${a.id}">Remover da turma</button></td></tr>`).join("")}</tbody></table></div>` : emptyState("♙", "Nenhum aluno", "Use “Matricular alunos” para vincular."));
+    $("#turma-alunos").querySelectorAll("[data-rem]").forEach(b => b.addEventListener("click", async () => {
+      if (!confirm("Remover este aluno da turma?")) return;
+      try { await api(`/api/admin/turmas/${id}/alunos/${b.dataset.rem}`, { method: "DELETE" }); notify("Aluno removido da turma."); abrirAlunos(id, nome); }
+      catch (err) { notify(err.message); }
+    }));
+  }
+  pageContent.querySelectorAll("[data-alunos]").forEach(b => b.addEventListener("click", () => abrirAlunos(b.dataset.alunos, b.dataset.nome).catch(err => notify(err.message))));
   $("#turma-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     try { await api("/api/admin/turmas", { method: "POST", body: { nome: $("#t-nome").value, professor_id: Number($("#t-prof").value) } }); notify("Turma criada."); showPage("a-turmas"); }
