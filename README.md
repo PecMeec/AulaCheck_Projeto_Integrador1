@@ -7,7 +7,7 @@
 
 | Perfil | O que pode fazer |
 |---|---|
-| **Administrador** | Cadastrar professores e alunos, ativar/desativar contas, criar turmas e matricular alunos. |
+| **Administrador** | Cadastrar, editar, desativar e excluir usuários (a exclusão só vale para quem não tem histórico), redefinir senhas com confirmação, criar turmas, matricular alunos, consultar e remover matrículas, com busca de usuários e turmas. |
 | **Professor** | Abrir chamada para uma de suas turmas, exibir o QR code (que muda sozinho a cada 30 s), estender o tempo da chamada, acompanhar as presenças em tempo real, marcar ou desfazer presença manualmente (com justificativa), encerrar a chamada e consultar o histórico. |
 | **Aluno** | Registrar presença pelo QR code (câmera) ou digitando o código, e consultar o próprio histórico. |
 
@@ -67,7 +67,7 @@ Cobrem login, permissões por perfil, fluxo completo de presença, código invá
 - Validação por geolocalização como **sinal** (e não bloqueio): exige permissão, tem baixa precisão em ambientes fechados e pode ser manipulada no aparelho; deve respeitar a LGPD.
 - Sinalização de presenças suspeitas (rede/IP, horário) para revisão do professor.
 - Verificação de proximidade física com Bluetooth/Wi-Fi: não é possível em aplicação web; exigiria aplicativo nativo e beacon na sala.
-- Redefinição de senha pelo administrador, edição e exclusão de usuários, busca de turmas na matrícula, relatórios e exportação.
+- Recuperação de senha por e-mail, limite de tentativas de login, o professor matricular alunos nas próprias turmas, relatórios e exportação.
 
 ## Estrutura
 
