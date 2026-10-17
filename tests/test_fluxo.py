@@ -218,6 +218,10 @@ def test_admin_cria_usuario_e_matricula(app):
     assert m.json == {"adicionados": 1, "nao_encontrados": ["nao@t.com"]}
 
 
+def _id(adm, email):
+    return next(u for u in adm.get("/api/admin/usuarios").json if u["email"] == email)["id"]
+
+
 def test_usuario_desativado_nao_entra(app):
     adm, _ = logar(app, "adm@t.com")
     uid = adm.get("/api/admin/usuarios").json
@@ -278,3 +282,73 @@ def test_chamada_esquecida_e_encerrada_sozinha(app):
     lista = prof.get("/api/professor/chamadas").json
     assert lista[0]["ativa"] is False
     assert criar_chamada(prof).status_code == 201  # turma liberada para nova chamada
+
+
+def test_admin_edita_usuario_e_redefine_senha(app):
+    adm, _ = logar(app, "adm@t.com")
+    uid = _id(adm, "alex@t.com")
+    r = adm.patch(f"/api/admin/usuarios/{uid}", json={"nome": "Alex Souza", "email": "ALEX.novo@t.com"})
+    assert r.status_code == 200 and r.json["nome"] == "Alex Souza" and r.json["email"] == "alex.novo@t.com"
+    # e-mail já usado por outro usuário
+    assert adm.patch(f"/api/admin/usuarios/{uid}", json={"email": "bia@t.com"}).status_code == 409
+    # confirmação divergente e senha curta
+    assert adm.patch(f"/api/admin/usuarios/{uid}", json={"senha": "novasenha1", "senha_confirmacao": "outra"}).status_code == 400
+    assert adm.patch(f"/api/admin/usuarios/{uid}", json={"senha": "123", "senha_confirmacao": "123"}).status_code == 400
+    # redefinição correta: a senha antiga deixa de valer
+    assert adm.patch(f"/api/admin/usuarios/{uid}", json={"senha": "novasenha1", "senha_confirmacao": "novasenha1"}).status_code == 200
+    assert logar(app, "alex.novo@t.com")[1].status_code == 401
+    assert logar(app, "alex.novo@t.com", "novasenha1")[1].status_code == 200
+
+
+def test_cadastro_exige_confirmacao_de_senha(app):
+    adm, _ = logar(app, "adm@t.com")
+    base = {"nome": "Caio", "email": "caio@t.com", "perfil": "aluno", "senha": "senha12345"}
+    assert adm.post("/api/admin/usuarios", json={**base, "senha_confirmacao": "diferente1"}).status_code == 400
+    assert adm.post("/api/admin/usuarios", json={**base, "senha_confirmacao": "senha12345"}).status_code == 201
+
+
+def test_admin_nao_desativa_nem_exclui_a_si_mesmo(app):
+    adm, _ = logar(app, "adm@t.com")
+    eu = _id(adm, "adm@t.com")
+    assert adm.patch(f"/api/admin/usuarios/{eu}", json={"ativo": False}).status_code == 400
+    assert adm.delete(f"/api/admin/usuarios/{eu}").status_code == 400
+
+
+def test_excluir_usuario_respeita_historico(app):
+    adm, _ = logar(app, "adm@t.com")
+    # professor com turma: recusado
+    assert adm.delete(f"/api/admin/usuarios/{_id(adm, 'prof@t.com')}").status_code == 409
+    # aluna sem presença nem turma: excluída
+    assert adm.delete(f"/api/admin/usuarios/{_id(adm, 'bia@t.com')}").status_code == 200
+    assert all(u["email"] != "bia@t.com" for u in adm.get("/api/admin/usuarios").json)
+    # aluno com presença: recusado (deve ser apenas desativado)
+    prof, _ = logar(app, "prof@t.com")
+    ch = criar_chamada(prof).json
+    aluno, _ = logar(app, "alex@t.com")
+    assert registrar(aluno, ch).status_code == 201
+    assert adm.delete(f"/api/admin/usuarios/{_id(adm, 'alex@t.com')}").status_code == 409
+    # professor sem turma pode ser excluído
+    adm.post("/api/admin/usuarios", json={"nome": "Livre", "email": "livre@t.com", "perfil": "professor", "senha": "senha12345"})
+    assert adm.delete(f"/api/admin/usuarios/{_id(adm, 'livre@t.com')}").status_code == 200
+
+
+def test_aluno_matriculado_sem_presenca_pode_ser_excluido(app):
+    adm, _ = logar(app, "adm@t.com")
+    uid = _id(adm, "alex@t.com")
+    assert adm.delete(f"/api/admin/usuarios/{uid}").status_code == 200
+    assert adm.get("/api/admin/turmas/1/alunos").json == []  # matrícula removida junto
+
+
+def test_listar_e_remover_alunos_da_turma(app):
+    adm, _ = logar(app, "adm@t.com")
+    adm.post("/api/admin/turmas/1/alunos", json={"emails": ["bia@t.com"]})
+    assert [a["email"] for a in adm.get("/api/admin/turmas/1/alunos").json] == ["alex@t.com", "bia@t.com"]
+    assert adm.delete(f"/api/admin/turmas/1/alunos/{_id(adm, 'bia@t.com')}").status_code == 200
+    # aluno que já tem presença na turma não pode ser desvinculado
+    prof, _ = logar(app, "prof@t.com")
+    ch = criar_chamada(prof).json
+    aluno, _ = logar(app, "alex@t.com")
+    registrar(aluno, ch)
+    assert adm.delete(f"/api/admin/turmas/1/alunos/{_id(adm, 'alex@t.com')}").status_code == 409
+    # só o administrador usa essas rotas
+    assert prof.delete("/api/admin/turmas/1/alunos/1").status_code == 403
