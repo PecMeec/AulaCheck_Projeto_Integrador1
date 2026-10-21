@@ -352,3 +352,138 @@ def test_listar_e_remover_alunos_da_turma(app):
     assert adm.delete(f"/api/admin/turmas/1/alunos/{_id(adm, 'alex@t.com')}").status_code == 409
     # só o administrador usa essas rotas
     assert prof.delete("/api/admin/turmas/1/alunos/1").status_code == 403
+
+
+def test_cancelar_chamada_aberta_por_engano(app):
+    prof, _ = logar(app, "prof@t.com")
+    ch = criar_chamada(prof).json
+    aluno, _ = logar(app, "alex@t.com")
+    assert registrar(aluno, ch).status_code == 201
+    r = prof.post(f"/api/professor/chamadas/{ch['id']}/cancelar")
+    assert r.status_code == 200 and r.json["cancelada"] is True and r.json["ativa"] is False
+    # deixa de valer, sai do histórico do aluno e libera a turma para uma chamada correta
+    assert aluno.get("/api/aluno/presencas").json == []
+    assert registrar(aluno, ch).status_code == 400
+    assert prof.post(f"/api/professor/chamadas/{ch['id']}/presenca-manual", json={"aluno_id": 1}).status_code == 409
+    assert criar_chamada(prof).status_code == 201
+    # continua listada para o professor, marcada como cancelada, e não entra na frequência da turma
+    lista = prof.get("/api/professor/chamadas").json
+    assert any(c["cancelada"] for c in lista)
+    turma = prof.get("/api/professor/turmas").json[0]
+    assert turma["chamadas"] == 1 and turma["frequencia"] is None  # a chamada nova ainda está aberta
+    # só o professor dono pode cancelar
+    assert aluno.post(f"/api/professor/chamadas/{ch['id']}/cancelar").status_code == 403
+
+
+def test_pendente_vira_ausente_ao_encerrar(app):
+    prof, _ = logar(app, "prof@t.com")
+    ch = criar_chamada(prof).json
+    assert prof.get(f"/api/professor/chamadas/{ch['id']}").json["alunos"][0]["status"] == "pendente"
+    prof.post(f"/api/professor/chamadas/{ch['id']}/encerrar")
+    assert prof.get(f"/api/professor/chamadas/{ch['id']}").json["alunos"][0]["status"] == "ausente"
+
+
+def test_resumo_por_turma_do_professor(app):
+    prof, _ = logar(app, "prof@t.com")
+    ch = criar_chamada(prof).json
+    aluno, _ = logar(app, "alex@t.com")
+    registrar(aluno, ch)
+    prof.post(f"/api/professor/chamadas/{ch['id']}/encerrar")
+    turma = prof.get("/api/professor/turmas").json[0]
+    assert turma["chamadas"] == 1 and turma["frequencia"] == 100  # 1 aluno matriculado, 1 presença
+
+
+def _turma(adm, **extra):
+    prof_id = next(u["id"] for u in adm.get("/api/admin/usuarios").json if u["email"] == "prof@t.com")
+    return adm.post("/api/admin/turmas", json={"nome": "Banco de Dados", "professor_id": prof_id, **extra})
+
+
+def test_turma_com_semestre_e_turno(app):
+    adm, _ = logar(app, "adm@t.com")
+    r = _turma(adm, semestre="2026.2", turno="Noite")
+    assert r.status_code == 201 and r.json["rotulo"] == "Banco de Dados (2026.2 · Noite)"
+    assert _turma(adm, turno="Madrugada").status_code == 400
+
+
+def test_encerrar_e_reabrir_turma(app):
+    adm, _ = logar(app, "adm@t.com")
+    prof, _ = logar(app, "prof@t.com")
+    aluno, _ = logar(app, "alex@t.com")
+    ch = criar_chamada(prof).json
+    encerrada = adm.post("/api/admin/turmas/1/encerrar").json
+    assert encerrada["encerrada"] is True
+    # a chamada aberta é fechada junto e a turma vira só consulta
+    assert prof.get(f"/api/professor/chamadas/{ch['id']}").json["ativa"] is False
+    assert registrar(aluno, ch).status_code == 400
+    assert criar_chamada(prof).status_code == 409
+    assert adm.post("/api/admin/turmas/1/alunos", json={"emails": ["bia@t.com"]}).status_code == 409
+    assert prof.post(f"/api/professor/chamadas/{ch['id']}/presenca-manual", json={"aluno_id": 1}).status_code == 409
+    assert prof.post(f"/api/professor/chamadas/{ch['id']}/cancelar").status_code == 409
+    # professor e aluno continuam vendo (somente consulta), com a indicação de encerrada
+    assert prof.get("/api/professor/turmas").json[0]["encerrada"] is True
+    assert aluno.get("/api/aluno/turmas").json[0]["encerrada"] is True
+    # reabrir devolve o funcionamento normal
+    assert adm.post("/api/admin/turmas/1/reabrir").json["encerrada"] is False
+    assert criar_chamada(prof).status_code == 201
+
+
+def test_excluir_turma_so_sem_chamadas(app):
+    adm, _ = logar(app, "adm@t.com")
+    prof, _ = logar(app, "prof@t.com")
+    criar_chamada(prof)
+    assert adm.delete("/api/admin/turmas/1").status_code == 409  # já tem chamada
+    nova = _turma(adm).json
+    assert adm.delete(f"/api/admin/turmas/{nova['id']}").status_code == 200
+    assert all(t["id"] != nova["id"] for t in adm.get("/api/admin/turmas").json)
+
+
+def test_cadastro_ja_matricula_o_aluno(app):
+    adm, _ = logar(app, "adm@t.com")
+    base = {"nome": "Caio", "email": "caio@t.com", "perfil": "aluno", "senha": "senha12345", "turma_id": 1}
+    assert adm.post("/api/admin/usuarios", json=base).status_code == 201
+    assert "caio@t.com" in [a["email"] for a in adm.get("/api/admin/turmas/1/alunos").json]
+    # professor não é matriculado; turma encerrada não aceita
+    assert adm.post("/api/admin/usuarios", json={**base, "email": "p2@t.com", "perfil": "professor"}).status_code == 400
+    adm.post("/api/admin/turmas/1/encerrar")
+    assert adm.post("/api/admin/usuarios", json={**base, "email": "d@t.com"}).status_code == 400
+
+
+def test_relatorio_da_turma(app):
+    adm, _ = logar(app, "adm@t.com")
+    adm.post("/api/admin/turmas/1/alunos", json={"emails": ["bia@t.com"]})
+    prof, _ = logar(app, "prof@t.com")
+    for presente in (True, False):  # duas chamadas: Alex vai só na primeira
+        ch = criar_chamada(prof).json
+        if presente:
+            registrar(logar(app, "alex@t.com")[0], ch)
+        prof.post(f"/api/professor/chamadas/{ch['id']}/encerrar")
+    r = prof.get("/api/professor/turmas/1/relatorio").json
+    por_nome = {a["nome"]: a for a in r["alunos"]}
+    assert r["total_chamadas"] == 2 and len(r["chamadas"]) == 2
+    assert por_nome["Alex"]["presencas"] == 1 and por_nome["Alex"]["frequencia"] == 50
+    assert por_nome["Bia"]["frequencia"] == 0 and r["frequencia_media"] == 25
+    assert adm.get("/api/admin/turmas/1/relatorio").json["total_chamadas"] == 2
+    # o aluno vê a própria frequência por matéria
+    assert logar(app, "alex@t.com")[0].get("/api/aluno/turmas").json[0]["frequencia"] == 50
+
+
+def test_professor_so_ve_relatorio_das_proprias_turmas(app):
+    adm, _ = logar(app, "adm@t.com")
+    adm.post("/api/admin/usuarios", json={"nome": "Outro", "email": "outro@t.com", "perfil": "professor", "senha": "senha12345"})
+    outro, _ = logar(app, "outro@t.com")
+    assert outro.get("/api/professor/turmas/1/relatorio").status_code == 404
+
+
+def test_relatorio_csv_com_protecao_de_formula(app):
+    adm, _ = logar(app, "adm@t.com")
+    adm.post("/api/admin/usuarios", json={"nome": "=SOMA(1;1)", "email": "x@t.com", "perfil": "aluno", "senha": "senha12345", "turma_id": 1})
+    r = adm.get("/api/admin/turmas/1/relatorio.csv")
+    assert r.status_code == 200 and r.mimetype == "text/csv" and "attachment" in r.headers["Content-Disposition"]
+    texto = r.get_data(as_text=True)
+    assert "Aluno;E-mail;Presenças;Faltas;Frequência (%)" in texto
+    assert "'=SOMA(1;1)" in texto and ";=SOMA" not in texto
+    prof, _ = logar(app, "prof@t.com")
+    assert prof.get("/api/professor/turmas/1/relatorio.csv").status_code == 200
+    aluno, _ = logar(app, "alex@t.com")
+    assert aluno.get("/api/professor/turmas/1/relatorio.csv").status_code == 403
+    assert adm.get("/api/admin/turmas/999/relatorio.csv").status_code == 404
