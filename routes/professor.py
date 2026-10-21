@@ -4,6 +4,7 @@ from flask import Blueprint, current_app, jsonify, request
 from flask_login import current_user
 
 from models import Chamada, Presenca, Turma, Usuario, agora, db, formatar_codigo
+from relatorio import chamadas_encerradas, relatorio_turma, resposta_csv
 from routes import erro, exige_perfil
 
 bp = Blueprint("professor", __name__, url_prefix="/api/professor")
@@ -36,9 +37,13 @@ def _detalhe(c):
     alunos = sorted(c.turma.alunos, key=lambda a: a.nome)
     d = c.to_dict()
     aberta = c.ativa and c.expira_em >= agora()
+    d["turma_encerrada"] = c.turma.encerrada_em is not None
     d["codigo"] = formatar_codigo(c.codigo_atual()) if aberta else None
     d["troca_em_s"] = c.segundos_para_troca() if aberta else 0
-    d["alunos"] = [{"id": a.id, "nome": a.nome, "email": a.email, "presente": a.id in presentes,
+    # "pendente" só existe enquanto a chamada está aberta; depois de encerrada, quem não registrou está ausente
+    def situacao(a):
+        return "presente" if a.id in presentes else ("pendente" if c.ativa else "ausente")
+    d["alunos"] = [{"id": a.id, "nome": a.nome, "email": a.email, "presente": a.id in presentes, "status": situacao(a),
                     "origem": presentes[a.id].origem if a.id in presentes else None} for a in alunos]
     return d
 
@@ -47,7 +52,34 @@ def _detalhe(c):
 @exige_perfil("professor")
 def turmas():
     ts = Turma.query.filter_by(professor_id=current_user.id).order_by(Turma.nome).all()
-    return jsonify([t.to_dict() for t in ts])
+    resposta = []
+    for t in ts:
+        d = t.to_dict()
+        validas = Chamada.query.filter_by(turma_id=t.id, cancelada_em=None).all()  # canceladas não contam
+        encerradas = chamadas_encerradas(t.id)  # a frequência só considera chamadas já encerradas
+        presencas = sum(len(c.presencas) for c in encerradas)
+        d["chamadas"] = len(validas)
+        d["frequencia"] = round(100 * presencas / (len(encerradas) * d["total_alunos"])) if encerradas and d["total_alunos"] else None
+        resposta.append(d)
+    return jsonify(resposta)
+
+
+@bp.get("/turmas/<int:tid>/relatorio")
+@exige_perfil("professor")
+def relatorio(tid):
+    t = db.session.get(Turma, tid)
+    if not t or t.professor_id != current_user.id:
+        return erro("Turma não encontrada.", 404)
+    return jsonify(relatorio_turma(t))
+
+
+@bp.get("/turmas/<int:tid>/relatorio.csv")
+@exige_perfil("professor")
+def relatorio_csv(tid):
+    t = db.session.get(Turma, tid)
+    if not t or t.professor_id != current_user.id:
+        return erro("Turma não encontrada.", 404)
+    return resposta_csv(t)
 
 
 @bp.get("/chamadas")
@@ -66,6 +98,8 @@ def criar():
     turma = db.session.get(Turma, d.get("turma_id") or 0)
     if not turma or turma.professor_id != current_user.id:
         return erro("Turma inválida.", 403)
+    if turma.encerrada_em:
+        return erro("Esta turma está encerrada e não aceita novas chamadas.", 409)
     try:
         data_aula = date.fromisoformat(d.get("data") or "")
     except ValueError:
@@ -112,6 +146,10 @@ def presenca_manual(cid):
     c = _minha_chamada(cid)
     if not c:
         return erro("Chamada não encontrada.", 404)
+    if c.cancelada_em:
+        return erro("Chamada cancelada não aceita presenças.", 409)
+    if c.turma.encerrada_em:
+        return erro("Turma encerrada: peça ao administrador para reabri-la antes de alterar presenças.", 409)
     d = request.get_json(silent=True) or {}
     aluno = db.session.get(Usuario, d.get("aluno_id") or 0)
     if not aluno or aluno not in c.turma.alunos:
@@ -126,6 +164,23 @@ def presenca_manual(cid):
     elif existente:
         return erro("Só é possível desfazer presenças marcadas manualmente.", 409)
     db.session.commit()
+    return jsonify(_detalhe(c))
+
+
+@bp.post("/chamadas/<int:cid>/cancelar")
+@exige_perfil("professor")
+def cancelar(cid):
+    """Anula uma chamada aberta por engano: deixa de valer e não conta na frequência de ninguém."""
+    c = _minha_chamada(cid)
+    if not c:
+        return erro("Chamada não encontrada.", 404)
+    if c.turma.encerrada_em:
+        return erro("Turma encerrada: peça ao administrador para reabri-la antes de cancelar chamadas.", 409)
+    if c.cancelada_em is None:
+        c.cancelada_em = agora()
+        if c.encerrada_em is None:
+            c.encerrada_em = c.cancelada_em
+        db.session.commit()
     return jsonify(_detalhe(c))
 
 
