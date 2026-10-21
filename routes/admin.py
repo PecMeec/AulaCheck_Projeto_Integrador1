@@ -1,7 +1,8 @@
 from flask import Blueprint, jsonify, request
 from flask_login import current_user
 
-from models import Chamada, Matricula, Presenca, Turma, Usuario, PERFIS, db
+from models import Chamada, Matricula, Presenca, Turma, Usuario, PERFIS, agora, db
+from relatorio import relatorio_turma, resposta_csv
 from routes import erro, exige_perfil
 
 bp = Blueprint("admin", __name__, url_prefix="/api/admin")
@@ -32,9 +33,18 @@ def criar_usuario():
         return erro("A confirmação da senha não confere.")
     if Usuario.query.filter_by(email=email).first():
         return erro("Já existe um usuário com este e-mail.", 409)
+    turma = None
+    if d.get("turma_id"):  # opcional: já matricula o aluno na hora do cadastro
+        if perfil != "aluno":
+            return erro("Só alunos podem ser matriculados no cadastro.")
+        turma = db.session.get(Turma, d["turma_id"])
+        if not turma or turma.encerrada_em:
+            return erro("Turma inválida ou encerrada.")
     u = Usuario(nome=nome, email=email, perfil=perfil)
     u.definir_senha(senha)
     db.session.add(u)
+    if turma:
+        turma.alunos.append(u)
     db.session.commit()
     return jsonify(u.to_dict()), 201
 
@@ -102,7 +112,12 @@ def excluir_usuario(uid):
 @bp.get("/turmas")
 @exige_perfil("admin")
 def listar_turmas():
-    return jsonify([t.to_dict() for t in Turma.query.order_by(Turma.nome).all()])
+    resposta = []
+    for t in Turma.query.order_by(Turma.nome).all():
+        d = t.to_dict()
+        d["chamadas"] = Chamada.query.filter_by(turma_id=t.id).count()  # turma sem chamadas pode ser excluída
+        resposta.append(d)
+    return jsonify(resposta)
 
 
 @bp.post("/turmas")
@@ -111,11 +126,15 @@ def criar_turma():
     d = request.get_json(silent=True) or {}
     nome = (d.get("nome") or "").strip()
     prof = db.session.get(Usuario, d.get("professor_id") or 0)
+    semestre = (d.get("semestre") or "").strip()[:10] or None
+    turno = (d.get("turno") or "").strip() or None
     if not nome:
         return erro("Informe o nome da turma/disciplina.")
+    if turno and turno not in ("Manhã", "Tarde", "Noite"):
+        return erro("Turno inválido.")
     if not prof or prof.perfil != "professor":
         return erro("Escolha um professor válido.")
-    t = Turma(nome=nome, professor_id=prof.id)
+    t = Turma(nome=nome, professor_id=prof.id, semestre=semestre, turno=turno)
     db.session.add(t)
     db.session.commit()
     return jsonify(t.to_dict()), 201
@@ -127,6 +146,8 @@ def matricular(tid):
     t = db.session.get(Turma, tid)
     if not t:
         return erro("Turma não encontrada.", 404)
+    if t.encerrada_em:
+        return erro("Turma encerrada: reabra a turma para matricular alunos.", 409)
     emails = [e.strip().lower() for e in (request.get_json(silent=True) or {}).get("emails", []) if e.strip()]
     if not emails:
         return erro("Informe ao menos um e-mail de aluno.")
@@ -161,9 +182,64 @@ def remover_matricula(tid, aid):
     if not t or not aluno or aluno not in t.alunos:
         return erro("Matrícula não encontrada.", 404)
     ja_presente = (Presenca.query.join(Chamada, Presenca.chamada_id == Chamada.id)
-                   .filter(Chamada.turma_id == tid, Presenca.aluno_id == aid).first())
+                   .filter(Chamada.turma_id == tid, Presenca.aluno_id == aid, Chamada.cancelada_em.is_(None)).first())
     if ja_presente:
         return erro("Este aluno já tem presenças nesta turma; a matrícula não pode ser removida.", 409)
     t.alunos.remove(aluno)
     db.session.commit()
     return jsonify({"ok": True})
+
+
+@bp.post("/turmas/<int:tid>/encerrar")
+@exige_perfil("admin")
+def encerrar_turma(tid):
+    """Encerra a turma: ela passa a ser só consulta e as chamadas abertas são fechadas."""
+    t = db.session.get(Turma, tid)
+    if not t:
+        return erro("Turma não encontrada.", 404)
+    if t.encerrada_em is None:
+        t.encerrada_em = agora()
+        for c in Chamada.query.filter_by(turma_id=t.id, encerrada_em=None).all():
+            c.encerrada_em = t.encerrada_em
+        db.session.commit()
+    return jsonify(t.to_dict())
+
+
+@bp.post("/turmas/<int:tid>/reabrir")
+@exige_perfil("admin")
+def reabrir_turma(tid):
+    t = db.session.get(Turma, tid)
+    if not t:
+        return erro("Turma não encontrada.", 404)
+    t.encerrada_em = None
+    db.session.commit()
+    return jsonify(t.to_dict())
+
+
+@bp.delete("/turmas/<int:tid>")
+@exige_perfil("admin")
+def excluir_turma(tid):
+    """Só turmas sem nenhuma chamada (cadastro errado) podem ser excluídas; as demais devem ser encerradas."""
+    t = db.session.get(Turma, tid)
+    if not t:
+        return erro("Turma não encontrada.", 404)
+    if Chamada.query.filter_by(turma_id=tid).first():
+        return erro("Esta turma já tem chamadas registradas. Encerre-a em vez de excluir, para manter o histórico.", 409)
+    Matricula.query.filter_by(turma_id=tid).delete()
+    db.session.delete(t)
+    db.session.commit()
+    return jsonify({"ok": True})
+
+
+@bp.get("/turmas/<int:tid>/relatorio")
+@exige_perfil("admin")
+def relatorio(tid):
+    t = db.session.get(Turma, tid)
+    return jsonify(relatorio_turma(t)) if t else erro("Turma não encontrada.", 404)
+
+
+@bp.get("/turmas/<int:tid>/relatorio.csv")
+@exige_perfil("admin")
+def relatorio_csv(tid):
+    t = db.session.get(Turma, tid)
+    return resposta_csv(t) if t else erro("Turma não encontrada.", 404)
