@@ -7,9 +7,9 @@
 
 | Perfil | O que pode fazer |
 |---|---|
-| **Administrador** | Cadastrar, editar, desativar e excluir usuários (a exclusão só vale para quem não tem histórico), redefinir senhas com confirmação, criar turmas, matricular alunos, consultar e remover matrículas, com busca de usuários e turmas. |
-| **Professor** | Abrir chamada para uma de suas turmas, exibir o QR code (que muda sozinho a cada 30 s), estender o tempo da chamada, acompanhar as presenças em tempo real, marcar ou desfazer presença manualmente (com justificativa), encerrar a chamada e consultar o histórico. |
-| **Aluno** | Registrar presença pelo QR code (câmera) ou digitando o código, e consultar o próprio histórico. |
+| **Administrador** | Cadastrar, editar, desativar e excluir usuários (exclusão só para quem não tem histórico), redefinir senhas com confirmação, já vincular o aluno a uma turma no cadastro; criar turmas (com semestre e turno), matricular alunos, **encerrar e reabrir turmas**, consultar relatórios de frequência (com CSV) e filtrar usuários e turmas por ativos/encerrados. |
+| **Professor** | Abrir chamada para uma de suas turmas, exibir o QR code (que muda sozinho a cada 30 s), estender o tempo da chamada, acompanhar as presenças em tempo real, marcar ou desfazer presença manualmente (com justificativa), encerrar a chamada e consultar o histórico., cancelar uma chamada aberta por engano, ver o relatório de frequência de cada turma (com CSV) e filtrar o histórico por turma e situação. Turmas encerradas somem do painel e ficam só para consulta. |
+| **Aluno** | Registrar presença pelo QR code (câmera) ou digitando o código, e consultar o próprio histórico., ver as matérias com frequência (matérias encerradas aparecem identificadas). |
 
 Não existe cadastro público: todas as contas são criadas pelo administrador.
 
