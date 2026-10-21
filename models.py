@@ -64,12 +64,21 @@ class Turma(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     nome = db.Column(db.String(120), nullable=False)
     professor_id = db.Column(db.Integer, db.ForeignKey("usuarios.id"), nullable=False)
+    semestre = db.Column(db.String(10))            # ex.: "2026.2"
+    turno = db.Column(db.String(10))               # Manhã, Tarde ou Noite
+    encerrada_em = db.Column(db.DateTime)          # turma encerrada: só consulta
     professor = db.relationship("Usuario", foreign_keys=[professor_id])
     alunos = db.relationship("Usuario", secondary="matriculas", lazy="select")
 
+    @property
+    def rotulo(self):
+        extra = " · ".join(x for x in (self.semestre, self.turno) if x)
+        return f"{self.nome} ({extra})" if extra else self.nome
+
     def to_dict(self):
-        return {"id": self.id, "nome": self.nome, "professor_id": self.professor_id,
-                "professor": self.professor.nome, "total_alunos": len(self.alunos)}
+        return {"id": self.id, "nome": self.nome, "rotulo": self.rotulo, "semestre": self.semestre or "",
+                "turno": self.turno or "", "encerrada": self.encerrada_em is not None,
+                "professor_id": self.professor_id, "professor": self.professor.nome, "total_alunos": len(self.alunos)}
 
 
 class Matricula(db.Model):
@@ -89,6 +98,7 @@ class Chamada(db.Model):
     expira_em = db.Column(db.DateTime, nullable=False)
     encerrada_em = db.Column(db.DateTime)
     criada_em = db.Column(db.DateTime, nullable=False, default=agora)
+    cancelada_em = db.Column(db.DateTime)  # chamada aberta por engano: não conta na frequência
     presencas = db.relationship("Presenca", backref="chamada", cascade="all, delete-orphan")
 
     @staticmethod
@@ -123,9 +133,9 @@ class Chamada(db.Model):
     def to_dict(self):
         total = len(self.turma.alunos)
         presentes = len(self.presencas)
-        return {"id": self.id, "turma_id": self.turma_id, "turma": self.turma.nome,
+        return {"id": self.id, "turma_id": self.turma_id, "turma": self.turma.rotulo,
                 "data": self.data_aula.strftime("%d/%m/%Y"), "observacao": self.observacao or "",
-                "ativa": self.ativa, "presentes": presentes, "total": total,
+                "ativa": self.ativa, "cancelada": self.cancelada_em is not None, "presentes": presentes, "total": total,
                 "expira_em": self.expira_em.isoformat() + "Z"}
 
 
