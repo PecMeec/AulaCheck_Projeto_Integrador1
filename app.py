@@ -114,7 +114,8 @@ def create_app(config_object=Config):
         _garantir_admin()
 
     return app
-
+    
+##iniciar
 
 app = create_app() if __name__ != "__main__" else None
 
